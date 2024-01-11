@@ -1,5 +1,5 @@
 # cdeeply-C
-C/C++ interface to C Deeply's neural network generator
+C/C++ interface to C Deeply's neural network generators
 
 Using the library involves four steps:
 
