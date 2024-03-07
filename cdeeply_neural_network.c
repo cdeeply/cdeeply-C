@@ -1,5 +1,5 @@
 /*
- *  cdeeply.c - interfaces to neural network generator
+ *  cdeeply_neural_network.c - interfaces to neural network generator
  *  
  *  C Deeply
  *  Copyright (C) 2023 C Deeply, LLC
@@ -23,11 +23,54 @@
  *  SOFTWARE.
  */
 
+/*
+ *  usage:
+ *  
+ *  1) Generate a neural network, using either of:
+ *  
+ *  int errCode = myNN.tabular_regressor( CDNN *myNN, int numInputs, int numOutputs, int numSamples, double *trainingSamples,
+ *                FEATURE_SAMPLE_ARRAY or SAMPLE_FEATURE_ARRAY, int *outputIndices, double *importances or NULL,
+ *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxLayerSkips or NO_MAX,
+ *                NO_BIAS or HAS_BIAS, NO_IO_CONNECTIONS or ALLOW_IO_CONNECTIONS, double *trainingOutputs or NULL, char **errorMessage or NULL );
+ *  
+ *  int errCode = myNN.tabular_encoder( CDNN *myNN, int numFeatures, int numSamples,
+ *                double *trainingSamples, FEATURE_SAMPLE_ARRAY or SAMPLE_FEATURE_ARRAY, double *importances or NULL,
+ *                DO_ENCODER or NO_ENCODER, DO_DECODER or NO_DECODER,
+ *                int numEncodingFeatures, int numVariationalFeatures, NORMAL_DIST or UNIFORM_DIST,
+ *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxLayerSkips or NO_MAX,
+ *                NO_BIAS or HAS_BIAS, double *trainingOutputs or NULL, char **errorMessage or NULL );
+ *  
+ *  * Pass "SAMPLE_FEATURE_ARRAY" if elements of trainingSamples are ordered (s1f1, s1f2, ..., s2f1, ...),
+ *        or "FEATURE_SAMPLE_ARRAY" if elements of trainingSamples are ordered (s1f1, s2f1, ..., s1f2, ...).
+ *  * For supervised x->y regression, the sample table contains BOTH 'x' and 'y', the latter specified by outputIndices[].
+ *  * The importances table, if not NULL, has numOutputFeatures*numSamples elements (again, ordered by indexOrder),
+ *        and weights the training cost function:  C = sum(Imp*dy^2).
+ *  * Weight/neuron/etc limits are either positive integers or "NO_MAX".
+ *  * trainingOutputs[], if passed, has numOutputs*numSamples elements and should agree with what's computed locally.
+ *  * errorMessage, if passed, does not allocate a string and therefore does not need to be freed if it is set (i.e. if errCode != 0).
+ *  
+ *  
+ *  2) Run the network on a (single) new sample
+ *  
+ *  double *oneSampleOutput = run_CDNN(CDNN *myNN, double *oneSampleInput);
+ *  
+ *  where oneSampleInput is a list of length numInputFeatures, and oneSampleOutput is a list of length numOutputFeatures.
+ *  * If it's an autoencoder (encoder+decoder), length(oneSampleInput) and length(oneSampleOutput) equal the size of the training sample space.
+ *        If it's just an encoder, length(oneSampleOutput) equals numEncodingFeatures; if decoder only, length(oneSampleInput) must equal numEncodingFeatures.
+ *    If it's a decoder/autoencoder network having numVariationalFeatures > 0, then oneSampleInput has numEncodingFeatures/numInputFeatures sample inputs
+ *        followed by numVariationalFeatures random numbers drawn from variationalDistribution.
+ *  
+ *  
+ *  3) Free memory
+ * 
+ *  free_CDNN(CDNN *myNN);
+*/
+
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "cdeeply.h"
+#include "cdeeply_neural_network.h"
 #include <curl/curl.h>
 
 
@@ -78,7 +121,7 @@ int cdReadFloats(double *theFloats, int numFloats)
 }
 
 
-char *data2table(double *data, int numIOs, int numSamples, int transpose)
+char *data2table(double *data, int numIOs, int numSamples, int indexOrder)
 {
     int dim1, dim2, i1, i2, numLength;
     char *table, *charPtr;
@@ -87,7 +130,7 @@ char *data2table(double *data, int numIOs, int numSamples, int transpose)
     table = malloc(25*numIOs*numSamples);
     if (table == NULL)  return table;
     
-    if (transpose == FEATURE_SAMPLE_ARRAY)  {  dim1 = numIOs; dim2 = numSamples;  }
+    if (indexOrder == FEATURE_SAMPLE_ARRAY)  {  dim1 = numIOs; dim2 = numSamples;  }
     else  {  dim1 = numSamples; dim2 = numIOs;  }
     
     charPtr = table;
@@ -275,24 +318,24 @@ char *checked[3] = { "", "on", "off" };
 char *vDists[2] = { "uniform", "normal" };
 char *NNtypes[2] = { "autoencoder", "regressor" };
 char *SubmitStr = "Submit";
+char *sourceStr = "C_API";
 
-int cdeeply_tabular_encoder(CDNN *NN, int numInputs, int numFeatures,
-        int numVariationalFeatures, int numSamples,
-        double *trainingSamples, double *importances, int transpose,
-        int doEncoder, int doDecoder, int variationalDist,
+int cdeeply_tabular_encoder(CDNN *NN, int numFeatures, int numSamples,
+        double *trainingSamples, int indexOrder, double *importances,
+        int doEncoder, int doDecoder, int numEncodingFeatures, int numVariationalFeatures, int variationalDist,
         int maxWeights, int maxNeurons, int maxLayers, int maxLayerSkips,
         int hasBias, double *sampleOutputs, char **errMsg)
 {
     int rtrn;
-    char *trainingSamplesStr, *importancesStr, strs[120], *numFeaturesStr = &strs[0];
+    char *trainingSamplesStr, *trainingSampleImportancesStr, strs[120], *numEncodingFeaturesStr = &strs[0];
     char *numVFsStr = &strs[20], *maxWeightsStr = &strs[40], *maxNeuronsStr = &strs[60];
     char *maxLayersStr = &strs[80], *maxLayerSkipsStr = &strs[100];
     char *rowcol[2] = { "columns", "rows" };
     postField toPOST[] = {
         { "samples", &trainingSamplesStr },
-        { "importances", &importancesStr },
-        { "rowscols", &rowcol[transpose] },
-        { "numFeatures", &numFeaturesStr },
+        { "importances", &trainingSampleImportancesStr },
+        { "rowscols", &rowcol[indexOrder] },
+        { "numFeatures", &numEncodingFeaturesStr },
         { "doEncoder", &checked[doEncoder] },
         { "doDecoder", &checked[doDecoder] },
         { "numVPs", &numVFsStr },
@@ -304,15 +347,15 @@ int cdeeply_tabular_encoder(CDNN *NN, int numInputs, int numFeatures,
         { "hasBias", &checked[hasBias] },
         { "submitStatus", &SubmitStr },
         { "NNtype", &NNtypes[0] },
-        { "fromWebpage", &checked[2] }
+        { "formSource", &sourceStr }
     };
     
-    trainingSamplesStr = data2table(trainingSamples, numInputs, numSamples, transpose);
-    if (importances == NULL)  importancesStr = "";
-    else  importancesStr = data2table(importances, numInputs, numSamples, transpose);
-    if ((trainingSamplesStr == NULL) || (importancesStr == NULL)) return CD_OUT_OF_MEMORY_ERROR;
+    trainingSamplesStr = data2table(trainingSamples, numFeatures, numSamples, indexOrder);
+    if (importances == NULL)  trainingSampleImportancesStr = "";
+    else  trainingSampleImportancesStr = data2table(importances, numFeatures, numSamples, indexOrder);
+    if ((trainingSamplesStr == NULL) || (trainingSampleImportancesStr == NULL)) return CD_OUT_OF_MEMORY_ERROR;
     
-    sprintf(numFeaturesStr, "%i", numFeatures);
+    sprintf(numEncodingFeaturesStr, "%i", numEncodingFeatures);
     sprintf(numVFsStr, "%i", numVariationalFeatures);
     maxWeightsStr[0] = maxNeuronsStr[0] = maxLayersStr[0] = maxLayerSkipsStr[0] = 0;
     if (maxWeights >= 0)  sprintf(maxWeightsStr, "%i", maxWeights);
@@ -324,25 +367,25 @@ int cdeeply_tabular_encoder(CDNN *NN, int numInputs, int numFeatures,
     if (errMsg != NULL)  *errMsg = &errMsgChars[0];
     
     free(trainingSamplesStr);
-    if (importances != NULL)  free(importancesStr);
+    if (importances != NULL)  free(trainingSampleImportancesStr);
     
     return rtrn;
 }
 
 
 int cdeeply_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSamples,
-        double *trainingSamples, double *importances, int transpose, int *outputRowsCols,
+        double *trainingSamples, int indexOrder, int *outputRowsColumns, double *importances,
         int maxWeights, int maxNeurons, int maxLayers, int maxLayerSkips,
         int hasBias, int allowIOconnections, double *sampleOutputs, char **errMsg)
 {
     int o, charIdx, rtrn;
-    char *outputRowsColsStr, *trainingSamplesStr, *importancesStr, strs[80], *maxWeightsStr = &strs[0];
+    char *outputRowsColsStr, *trainingSamplesStr, *trainingSampleImportancesStr, strs[80], *maxWeightsStr = &strs[0];
     char *maxNeuronsStr = &strs[20], *maxLayersStr = &strs[40], *maxLayerSkipsStr = &strs[60];
     char *rowcol[2] = { "rows", "columns" };
     postField toPOST[] = {
         { "samples", &trainingSamplesStr },
-        { "importances", &importancesStr },
-        { "rowscols", &rowcol[transpose] },
+        { "importances", &trainingSampleImportancesStr },
+        { "rowscols", &rowcol[indexOrder] },
         { "rowcolRange", &outputRowsColsStr },
         { "maxWeights", &maxWeightsStr },
         { "maxNeurons", &maxNeuronsStr },
@@ -352,22 +395,22 @@ int cdeeply_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSa
         { "allowIO", &checked[allowIOconnections] },
         { "submitStatus", &SubmitStr },
         { "NNtype", &NNtypes[1] },
-        { "fromWebpage", &checked[2] }
+        { "formSource", &sourceStr }
     };
     
-    trainingSamplesStr = data2table(trainingSamples, numInputs+numOutputs, numSamples, transpose);
-    if (importances == NULL)  importancesStr = "";
-    else  importancesStr = data2table(importances, numOutputs, numSamples, transpose);
-    if ((trainingSamplesStr == NULL) || (importancesStr == NULL)) return CD_OUT_OF_MEMORY_ERROR;
+    trainingSamplesStr = data2table(trainingSamples, numInputs+numOutputs, numSamples, indexOrder);
+    if (importances == NULL)  trainingSampleImportancesStr = "";
+    else  trainingSampleImportancesStr = data2table(importances, numOutputs, numSamples, indexOrder);
+    if ((trainingSamplesStr == NULL) || (trainingSampleImportancesStr == NULL)) return CD_OUT_OF_MEMORY_ERROR;
     
     outputRowsColsStr = malloc(numOutputs*20*sizeof(int));
     if (outputRowsColsStr == NULL)  return CD_OUT_OF_MEMORY_ERROR;
     
     if (numOutputs <= 0)  {  charIdx = 0; outputRowsColsStr[0] = 0;  }
     else  {
-        charIdx = sprintf(outputRowsColsStr, "%i", outputRowsCols[0]+1);
+        charIdx = sprintf(outputRowsColsStr, "%i", outputRowsColumns[0]+1);
         for (o = 1; o < numOutputs; o++)  {
-            charIdx += sprintf(outputRowsColsStr + charIdx, ",%i", outputRowsCols[o]+1);
+            charIdx += sprintf(outputRowsColsStr + charIdx, ",%i", outputRowsColumns[o]+1);
     }   }
     
     maxWeightsStr[0] = maxNeuronsStr[0] = maxLayersStr[0] = maxLayerSkipsStr[0] = 0;
@@ -382,7 +425,7 @@ int cdeeply_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSa
     
     free(outputRowsColsStr);
     free(trainingSamplesStr);
-    if (importances != NULL)  free(importancesStr);
+    if (importances != NULL)  free(trainingSampleImportancesStr);
     
     return rtrn;
 }

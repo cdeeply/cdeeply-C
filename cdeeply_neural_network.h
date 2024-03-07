@@ -1,5 +1,5 @@
 /*
- *  cdeeply.h - interfaces to neural network generator
+ *  cdeeply_neural_network.h - interfaces to neural network generator
  *  
  *  C Deeply
  *  Copyright (C) 2023 C Deeply, LLC
@@ -68,10 +68,10 @@ typedef struct {
 } CDNN;
 
 
-extern int cdeeply_tabular_regressor(CDNN *, int, int, int, double *, double *, int, int *,
+extern int cdeeply_tabular_regressor(CDNN *, int, int, int, double *, int, int *, double *,
         int, int, int, int, int, int, double *, char **);
-extern int cdeeply_tabular_encoder(CDNN *, int, int, int, int, double *, double *, int,
-        int, int, int, int, int, int, int, int, double *, char **);
+extern int cdeeply_tabular_encoder(CDNN *, int, int, double *, int, double *,
+        int, int, int, int, int, int, int, int, int, int, double *, char **);
 extern double *run_CDNN(CDNN *, double *);
 extern void free_CDNN(CDNN *);
 
