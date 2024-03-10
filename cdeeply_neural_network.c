@@ -295,7 +295,7 @@ char *NNtypes[2] = { "autoencoder", "regressor" };
 char *SubmitStr = "Submit";
 char *sourceStr = "C_API";
 
-int cdeeply_tabular_encoder(CDNN *NN, int numFeatures, int numSamples,
+int CDNN_tabular_encoder(CDNN *NN, int numFeatures, int numSamples,
         double *trainingSamples, int indexOrder, double *importances,
         int doEncoder, int doDecoder, int numEncodingFeatures, int numVariationalFeatures, int variationalDist,
         int maxWeights, int maxNeurons, int maxLayers, int maxLayerSkips,
@@ -348,7 +348,7 @@ int cdeeply_tabular_encoder(CDNN *NN, int numFeatures, int numSamples,
 }
 
 
-int cdeeply_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSamples,
+int CDNN_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSamples,
         double *trainingSamples, int indexOrder, int *outputRowsColumns, double *importances,
         int maxWeights, int maxNeurons, int maxLayers, int maxLayerSkips,
         int hasBias, int allowIOconnections, double *sampleOutputs, char **errMsg)
