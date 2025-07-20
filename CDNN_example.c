@@ -39,12 +39,14 @@ int main(int argc, char **argv)
     const int numSamples = 100;
     const double noiseAmplitude = 0.1;
     const int numOuts[2] = { numFeatures, 1 };
-    int c2, co, io, f, s, rtrn, outputColumns[] = { numFeatures-1 };
+    int c2, csw, co, io, f, s, rtrn, outputColumns[] = { numFeatures-1 };
     double trainTestMat[numFeatures*(numSamples+1)], *datum, dependentVar, featurePhase[numFeatures], featureCurvature[numFeatures];
     double *firstSampleOutputs, *testSampleOutputs, outputsComputedByServer[numFeatures*numSamples], targetValue;
     char *errMsg, *NNtypes[2] = { "autoencoder with 1 latent feature", "regressor" };
     char *targetDescriptions[2] = { "reconstructed feature 1", "output" };
-    
+    AFlist myAFs = { OFF, OFF, OFF, OFF, ALLOWED_AF };
+    quantizationType weightQuantization = { OFF, 0, 0, 1. }, activationQuantization = { OFF, 0, 0, 1. };
+    int sws[2] = { NONSPARSE_WEIGHTS, SPARSE_WEIGHTS };
     srand((int) time(0));
  
 
@@ -64,16 +66,19 @@ int main(int argc, char **argv)
     }   }
     
     
+    for (csw = 0; csw < 2; csw++)  {
     for (c2 = 0; c2 < 2; c2++)  {
         
         printf("Generating %s..\n", NNtypes[c2]);
         if (c2 == 0)  {
             rtrn = CDNN_tabular_encoder(&NN, numFeatures, numSamples, trainTestMat, SAMPLE_FEATURE_ARRAY, NULL,
                     DO_ENCODER, DO_DECODER, 1, 0, NORMAL_DIST,
-                    NO_MAX, NO_MAX, NO_MAX, NO_MAX, HAS_BIAS, &outputsComputedByServer[0], &errMsg);      }
+                    NO_MAX, NO_MAX, NO_MAX, NO_MAX, 1., HARD_LIMIT, HARD_LIMIT, HARD_LIMIT, myAFs, weightQuantization, activationQuantization,
+                    sws[csw], ALLOW_NEGATIVE_WEIGHTS, HAS_BIAS, &outputsComputedByServer[0], &errMsg);      }
         else  {
             rtrn = CDNN_tabular_regressor(&NN, numFeatures-1, 1, numSamples, trainTestMat, SAMPLE_FEATURE_ARRAY, outputColumns, NULL,
-                    NO_MAX, NO_MAX, NO_MAX, NO_MAX, HAS_BIAS, ALLOW_IO_CONNECTIONS, &outputsComputedByServer[0], &errMsg);     }
+                    NO_MAX, NO_MAX, NO_MAX, NO_MAX, 1., HARD_LIMIT, HARD_LIMIT, HARD_LIMIT, myAFs, weightQuantization, activationQuantization,
+                    sws[csw], ALLOW_NEGATIVE_WEIGHTS, HAS_BIAS, ALLOW_IO_CONNECTIONS, &outputsComputedByServer[0], &errMsg);     }
         
         if (rtrn != 0)  {
             printf("  ** Server error %i (%s)\n", rtrn, errMsg);
@@ -95,7 +100,7 @@ int main(int argc, char **argv)
         printf("  Test sample:  %s was %g; target value was %g\n", targetDescriptions[c2], testSampleOutputs[0], targetValue);
         
         free_CDNN(&NN);
-    }
+    }}
     
     return 0;
 }

@@ -5,14 +5,14 @@
  *  
  *  int errCode = myNN.tabular_regressor( CDNN *myNN, int numInputs, int numOutputs, int numSamples, double *trainingSamples,
  *                FEATURE_SAMPLE_ARRAY or SAMPLE_FEATURE_ARRAY, int *outputIndices, double *importances or NULL,
- *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxLayerSkips or NO_MAX,
+ *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxWeightDepth or NO_MAX,
  *                NO_BIAS or HAS_BIAS, NO_IO_CONNECTIONS or ALLOW_IO_CONNECTIONS, double *trainingOutputs or NULL, char **errorMessage or NULL );
  *  
  *  int errCode = myNN.tabular_encoder( CDNN *myNN, int numFeatures, int numSamples,
  *                double *trainingSamples, FEATURE_SAMPLE_ARRAY or SAMPLE_FEATURE_ARRAY, double *importances or NULL,
  *                DO_ENCODER or NO_ENCODER, DO_DECODER or NO_DECODER,
  *                int numEncodingFeatures, int numVariationalFeatures, NORMAL_DIST or UNIFORM_DIST,
- *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxLayerSkips or NO_MAX,
+ *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxWeightDepth or NO_MAX,
  *                NO_BIAS or HAS_BIAS, double *trainingOutputs or NULL, char **errorMessage or NULL );
  *  
  *  * Pass "SAMPLE_FEATURE_ARRAY" if elements of trainingSamples are ordered (s1f1, s1f2, ..., s2f1, ...),
@@ -59,16 +59,21 @@ bufferType *readBuffer;
 
 int cdReadNum(void *theNum, int mode)
 {
+    int rtrn;
     char *numEnd = charPtr;
+    
     while ((*numEnd != ',') && (*numEnd != ';'))  {
         numEnd++;
         if (numEnd > endChars)  return CD_NN_READ_ERROR;   }
     *numEnd = 0;
     
-    if (mode == 0)  sscanf(charPtr, "%i", (int *) theNum);
-    else  sscanf(charPtr, "%lg", (double *) theNum);
+    if (mode == 0)  rtrn = sscanf(charPtr, "%i", (int *) theNum);
+    else  rtrn = sscanf(charPtr, "%lg", (double *) theNum);
+    
+    if (rtrn != 1)  return CD_NN_READ_ERROR;
     
     charPtr = numEnd+1;
+    while ((*charPtr == ',') || (*charPtr == ';'))  charPtr++;
     
     return 0;
 }
@@ -78,7 +83,9 @@ int cdReadInts(int *theInts, int numInts)
 {
     int i;
     for (i = 0; i < numInts; i++)  {
+char *backup = charPtr;
     if (cdReadInt(theInts + i) != 0)  {
+printf("error at (%p) (%c%c%c)%c%c%c%c%c%c%c%c%c%c ((%i %i %i) %i %i %i %i %i %i %i %i %i %i)\n", backup, backup[-3], backup[-2], backup[-1], backup[0], backup[1], backup[2], backup[3], backup[4], backup[5], backup[6], backup[7], backup[8], backup[9], backup[-3], backup[-2], backup[-1], backup[0], backup[1], backup[2], backup[3], backup[4], backup[5], backup[6], backup[7], backup[8], backup[9]);
         return CD_NN_READ_ERROR;
     }}
     return 0;
@@ -124,11 +131,11 @@ char *data2table(double *data, int numIOs, int numSamples, int indexOrder)
 }
 
 
-
-int cdeeply_getNN(CDNN *NN, char *NNchars, long numChars, double *sampleOutputs, int numSamples)
+int getNN(CDNN *NN, char *NNchars, long numChars, double *sampleOutputs, int numSamples, int weightSparsity)
 {
     char header[100];
-    int loopChar, rtrn, l, li, inputLayer, numWeights;
+    int loopChar, rtrn, l, li, numWeights, arr, arr0;
+    void ***arrays[3];
     
     NNchars[numChars] = ';';
     
@@ -143,11 +150,24 @@ int cdeeply_getNN(CDNN *NN, char *NNchars, long numChars, double *sampleOutputs,
     NN->layerAFs = malloc(NN->numLayers*sizeof(int));
     NN->numLayerInputs = malloc(NN->numLayers*sizeof(int));
     NN->layerInputs = malloc(NN->numLayers*sizeof(int *));
-    NN->weights = malloc(NN->numLayers*sizeof(double **));
+    arrays[2] = (void ***) (NN->weights = malloc(NN->numLayers*sizeof(double **)));
     NN->y = malloc(NN->numLayers*sizeof(double *));
     if ((NN->layerSize == NULL) || (NN->layerAFs == NULL) || (NN->numLayerInputs == NULL)
             || (NN->layerInputs == NULL) || (NN->weights == NULL) || (NN->y == NULL))
         return CD_OUT_OF_MEMORY_ERROR;
+    
+   if (weightSparsity == SPARSE_WEIGHTS)  {
+        arr0 = 0;
+        NN->wSize = malloc(NN->numLayers*sizeof(int *));
+        arrays[0] = (void ***) (NN->n0 = malloc(NN->numLayers*sizeof(int **)));
+        arrays[1] = (void ***) (NN->nf = malloc(NN->numLayers*sizeof(int **)));
+        if ((NN->n0 == NULL) || (NN->nf == NULL))  {
+            return CD_OUT_OF_MEMORY_ERROR;
+    }   }
+    else  {
+        NN->n0 = NN->nf = NULL;
+        NN->wSize = NULL;
+        arr0 = 2;          }
     
     if (cdReadInts(NN->layerSize, NN->numLayers) != 0)  return CD_NN_READ_ERROR;
     if (cdReadInts(NN->layerAFs, NN->numLayers) != 0)  return CD_NN_READ_ERROR;
@@ -160,19 +180,44 @@ int cdeeply_getNN(CDNN *NN, char *NNchars, long numChars, double *sampleOutputs,
         
         if (cdReadInts(NN->layerInputs[l], NN->numLayerInputs[l]) != 0)  return CD_NN_READ_ERROR;
     }
+    
     for (l = 0; l < NN->numLayers; l++)  {
+        
+        if (weightSparsity == SPARSE_WEIGHTS)  {
+            NN->wSize[l] = malloc(NN->numLayerInputs[l]*sizeof(int));
+            NN->n0[l] = malloc(NN->numLayerInputs[l]*sizeof(int *));
+            NN->nf[l] = malloc(NN->numLayerInputs[l]*sizeof(int *));
+            if ((NN->wSize[l] == NULL) || (NN->n0[l] == NULL) || (NN->nf[l] == NULL))  return CD_OUT_OF_MEMORY_ERROR;
+            
+            if (cdReadInts(NN->wSize[l], NN->numLayerInputs[l]) != 0)  return CD_NN_READ_ERROR;
+        }
+        
         NN->weights[l] = malloc(NN->numLayerInputs[l]*sizeof(double *));
         if (NN->weights[l] == NULL)  return CD_OUT_OF_MEMORY_ERROR;
         
         for (li = 0; li < NN->numLayerInputs[l]; li++)  {
-            inputLayer = NN->layerInputs[l][li];
-            numWeights = NN->layerSize[l]*NN->layerSize[inputLayer];
+            if (weightSparsity == SPARSE_WEIGHTS)  {
+                numWeights = NN->wSize[l][li];
+                NN->n0[l][li] = malloc(numWeights*sizeof(int));
+                NN->nf[l][li] = malloc(numWeights*sizeof(int));
+                if ((NN->n0[l][li] == NULL) || (NN->nf[l][li] == NULL))  return CD_OUT_OF_MEMORY_ERROR;
+            }
+            else  numWeights = NN->layerSize[l]*NN->layerSize[NN->layerInputs[l][li]];
             
             NN->weights[l][li] = malloc(numWeights*sizeof(double));
             if (NN->weights[l][li] == NULL)  return CD_OUT_OF_MEMORY_ERROR;
-            
-            if (cdReadFloats(NN->weights[l][li], numWeights) != 0)  return CD_NN_READ_ERROR;
     }   }
+    
+    for (arr = arr0; arr < 3; arr++)  {
+        for (l = 0; l < NN->numLayers; l++)  {
+        for (li = 0; li < NN->numLayerInputs[l]; li++)  {
+            
+            if (weightSparsity == SPARSE_WEIGHTS)  numWeights = NN->wSize[l][li];
+            else  numWeights = NN->layerSize[l]*NN->layerSize[NN->layerInputs[l][li]];
+            
+            if (arr < 2)  {  if (cdReadInts((int *) arrays[arr][l][li], numWeights) != 0)  return CD_NN_READ_ERROR;  }
+            else  {  if (cdReadFloats((double *) arrays[arr][l][li], numWeights) != 0)  return CD_NN_READ_ERROR;  }
+    }   }}
     
     if (sampleOutputs != NULL)  {
     if (cdReadFloats(sampleOutputs, NN->layerSize[NN->numLayers-1]*numSamples) != 0)  {
@@ -222,8 +267,7 @@ void setErrMsg(char *msg)
     c[3] = 0;
 }
 
-int cdeeply_buildNN(CDNN *NN, double *sampleOutputs,
-            int numSamples, postField *toPOST, int numPostFields)
+int buildNN(CDNN *NN, double *sampleOutputs, int numSamples, int weightSparsity, postField *toPOST, int numPostFields)
 {
     int p, rtrn;
     bufferType *readBuffer1;
@@ -276,7 +320,7 @@ int cdeeply_buildNN(CDNN *NN, double *sampleOutputs,
         rtrn = CD_PARAMS_ERR;
     }
     else  {
-        rtrn = cdeeply_getNN(NN, readBufferChars, curlWriteDataSize, sampleOutputs, numSamples);
+        rtrn = getNN(NN, readBufferChars, curlWriteDataSize, sampleOutputs, numSamples, weightSparsity);
         if (rtrn == CD_NN_READ_ERROR)  setErrMsg("Problem reading neural network from server");
         else if (rtrn == CD_NN_READ_ERROR)  setErrMsg(readBufferChars);
     }
@@ -294,69 +338,20 @@ char *vDists[2] = { "uniform", "normal" };
 char *NNtypes[2] = { "autoencoder", "regressor" };
 char *SubmitStr = "Submit";
 char *sourceStr = "C_API";
-
-int CDNN_tabular_encoder(CDNN *NN, int numFeatures, int numSamples,
-        double *trainingSamples, int indexOrder, double *importances,
-        int doEncoder, int doDecoder, int numEncodingFeatures, int numVariationalFeatures, int variationalDist,
-        int maxWeights, int maxNeurons, int maxLayers, int maxLayerSkips,
-        int hasBias, double *sampleOutputs, char **errMsg)
-{
-    int rtrn;
-    char *trainingSamplesStr, *trainingSampleImportancesStr, strs[120], *numEncodingFeaturesStr = &strs[0];
-    char *numVFsStr = &strs[20], *maxWeightsStr = &strs[40], *maxNeuronsStr = &strs[60];
-    char *maxLayersStr = &strs[80], *maxLayerSkipsStr = &strs[100];
-    char *rowcol[2] = { "columns", "rows" };
-    postField toPOST[] = {
-        { "samples", &trainingSamplesStr },
-        { "importances", &trainingSampleImportancesStr },
-        { "rowscols", &rowcol[indexOrder] },
-        { "numFeatures", &numEncodingFeaturesStr },
-        { "doEncoder", &checked[doEncoder] },
-        { "doDecoder", &checked[doDecoder] },
-        { "numVPs", &numVFsStr },
-        { "variationalDist", &vDists[variationalDist] },
-        { "maxWeights", &maxWeightsStr },
-        { "maxNeurons", &maxNeuronsStr },
-        { "maxLayers", &maxLayersStr },
-        { "maxSkips", &maxLayerSkipsStr },
-        { "hasBias", &checked[hasBias] },
-        { "submitStatus", &SubmitStr },
-        { "NNtype", &NNtypes[0] },
-        { "formSource", &sourceStr }
-    };
-    
-    trainingSamplesStr = data2table(trainingSamples, numFeatures, numSamples, indexOrder);
-    if (importances == NULL)  trainingSampleImportancesStr = "";
-    else  trainingSampleImportancesStr = data2table(importances, numFeatures, numSamples, indexOrder);
-    if ((trainingSamplesStr == NULL) || (trainingSampleImportancesStr == NULL)) return CD_OUT_OF_MEMORY_ERROR;
-    
-    sprintf(numEncodingFeaturesStr, "%i", numEncodingFeatures);
-    sprintf(numVFsStr, "%i", numVariationalFeatures);
-    maxWeightsStr[0] = maxNeuronsStr[0] = maxLayersStr[0] = maxLayerSkipsStr[0] = 0;
-    if (maxWeights >= 0)  sprintf(maxWeightsStr, "%i", maxWeights);
-    if (maxNeurons >= 0)  sprintf(maxNeuronsStr, "%i", maxNeurons);
-    if (maxLayers >= 0)  sprintf(maxLayersStr, "%i", maxLayers);
-    if (maxLayerSkips >= 0)  sprintf(maxLayerSkipsStr, "%i", maxLayerSkips);
-    
-    rtrn = cdeeply_buildNN(NN, sampleOutputs, numSamples, toPOST, sizeof(toPOST)/sizeof(postField));
-    if (errMsg != NULL)  *errMsg = &errMsgChars[0];
-    
-    free(trainingSamplesStr);
-    if (importances != NULL)  free(trainingSampleImportancesStr);
-    
-    return rtrn;
-}
-
+char *rowcol[2] = { "rows", "columns" };
 
 int CDNN_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSamples,
         double *trainingSamples, int indexOrder, int *outputRowsColumns, double *importances,
-        int maxWeights, int maxNeurons, int maxLayers, int maxLayerSkips,
-        int hasBias, int allowIOconnections, double *sampleOutputs, char **errMsg)
+        int maxWeights, int maxNeurons, int maxLayers, int maxWeightDepth, double maxActivationRate,
+        int maxWeightsHardLimit, int maxNeuronsHardLimit, int maxActivationsHardLimit,
+        AFlist allowedAFs, quantizationType weightQuantization, quantizationType activationQuantization,
+        int weightSparsity, int allowNegativeWeights, int hasBias, int allowIOconnections, double *sampleOutputs, char **errMsg)
 {
     int o, charIdx, rtrn;
-    char *outputRowsColsStr, *trainingSamplesStr, *trainingSampleImportancesStr, strs[80], *maxWeightsStr = &strs[0];
-    char *maxNeuronsStr = &strs[20], *maxLayersStr = &strs[40], *maxLayerSkipsStr = &strs[60];
-    char *rowcol[2] = { "rows", "columns" };
+    char *outputRowsColsStr, *trainingSamplesStr, *trainingSampleImportancesStr, strs[280], *maxWeightsStr = &strs[0];
+    char *maxNeuronsStr = &strs[20], *maxLayersStr = &strs[40], *maxWeightDepthStr = &strs[60], *maxActivationRateStr = &strs[80];
+    char *wQuantBitsStr = &strs[120], *wQuantZeroStr = &strs[140], *wQuantRangeStr = &strs[160];
+    char *yQuantBitsStr = &strs[200], *yQuantZeroStr = &strs[220], *yQuantRangeStr = &strs[240];
     postField toPOST[] = {
         { "samples", &trainingSamplesStr },
         { "importances", &trainingSampleImportancesStr },
@@ -365,7 +360,26 @@ int CDNN_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSampl
         { "maxWeights", &maxWeightsStr },
         { "maxNeurons", &maxNeuronsStr },
         { "maxLayers", &maxLayersStr },
-        { "maxSkips", &maxLayerSkipsStr },
+        { "maxWeightDepth", &maxWeightDepthStr },
+        { "maxActivationRate", &maxActivationRateStr },
+        { "maxWeightsHardLimit", &checked[maxWeightsHardLimit] },
+        { "maxNeuronsHardLimit", &checked[maxNeuronsHardLimit] },
+        { "maxActivationsHardLimit", &checked[maxActivationsHardLimit] },
+        { "step", &checked[allowedAFs.stepAF] },
+        { "ReLU", &checked[allowedAFs.ReLUAF] },
+        { "ReLU1", &checked[allowedAFs.ReLU1AF] },
+        { "sigmoid", &checked[allowedAFs.sigmoidAF] },
+        { "tanh", &checked[allowedAFs.tanhAF] },
+        { "quantizeWeights", &checked[weightQuantization.ifQuantize] },
+        { "wQuantBits", &wQuantBitsStr },
+        { "wQuantZero", &wQuantZeroStr },
+        { "wQuantRange", &wQuantRangeStr },
+        { "quantizeActivations", &checked[activationQuantization.ifQuantize] },
+        { "yQuantBits", &yQuantBitsStr },
+        { "yQuantZero", &yQuantZeroStr },
+        { "yQuantRange", &yQuantRangeStr },
+        { "sparseWeights", &checked[weightSparsity] },
+        { "allowNegativeWeights", &checked[allowNegativeWeights] },
         { "hasBias", &checked[hasBias] },
         { "allowIO", &checked[allowIOconnections] },
         { "submitStatus", &SubmitStr },
@@ -388,14 +402,24 @@ int CDNN_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSampl
             charIdx += sprintf(outputRowsColsStr + charIdx, ",%i", outputRowsColumns[o]+1);
     }   }
     
-    maxWeightsStr[0] = maxNeuronsStr[0] = maxLayersStr[0] = maxLayerSkipsStr[0] = 0;
+    maxWeightsStr[0] = maxNeuronsStr[0] = maxLayersStr[0] = maxWeightDepthStr[0] = 0;
     if (maxWeights >= 0)  sprintf((char *) maxWeightsStr, "%i", maxWeights);
     if (maxNeurons >= 0)  sprintf(maxNeuronsStr, "%i", maxNeurons);
     if (maxLayers >= 0)  sprintf(maxLayersStr, "%i", maxLayers);
-    if (maxLayerSkips >= 0)  sprintf(maxLayerSkipsStr, "%i", maxLayerSkips);
+    if (maxWeightDepth >= 0)  sprintf(maxWeightDepthStr, "%i", maxWeightDepth);
+    sprintf(maxActivationRateStr, "%1.17g", maxActivationRate);
+    if (weightQuantization.ifQuantize)  {
+        sprintf(wQuantBitsStr, "%i", weightQuantization.bits);
+        sprintf(wQuantZeroStr, "%i", weightQuantization.zeroInt);
+        sprintf(wQuantRangeStr, "%1.17g", weightQuantization.range);
+    }
+    if (activationQuantization.ifQuantize)  {
+        sprintf(yQuantBitsStr, "%i", activationQuantization.bits);
+        sprintf(yQuantZeroStr, "%i", activationQuantization.zeroInt);
+        sprintf(yQuantRangeStr, "%1.17g", activationQuantization.range);
+    }
     
-    rtrn = cdeeply_buildNN(NN, sampleOutputs, numSamples,
-            toPOST, sizeof(toPOST)/sizeof(postField));
+    rtrn = buildNN(NN, sampleOutputs, numSamples, weightSparsity, toPOST, sizeof(toPOST)/sizeof(postField));
     if (errMsg != NULL)  *errMsg = &errMsgChars[0];
     
     free(outputRowsColsStr);
@@ -405,15 +429,105 @@ int CDNN_tabular_regressor(CDNN *NN, int numInputs, int numOutputs, int numSampl
     return rtrn;
 }
 
+int CDNN_tabular_encoder(CDNN *NN, int numFeatures, int numSamples,
+        double *trainingSamples, int indexOrder, double *importances,
+        int doEncoder, int doDecoder, int numEncodingFeatures, int numVariationalFeatures, int variationalDist,
+        int maxWeights, int maxNeurons, int maxLayers, int maxWeightDepth, double maxActivationRate,
+        int maxWeightsHardLimit, int maxNeuronsHardLimit, int maxActivationsHardLimit,
+        AFlist allowedAFs, quantizationType weightQuantization, quantizationType activationQuantization,
+        int weightSparsity, int allowNegativeWeights, int hasBias, double *sampleOutputs, char **errMsg)
+{
+    int rtrn;
+    char *trainingSamplesStr, *trainingSampleImportancesStr, strs[320], *numEncodingFeaturesStr = &strs[0];
+    char *numVFsStr = &strs[20], *maxWeightsStr = &strs[40], *maxNeuronsStr = &strs[60];
+    char *maxLayersStr = &strs[80], *maxWeightDepthStr = &strs[100], *maxActivationRateStr = &strs[120];
+    char *wQuantBitsStr = &strs[160], *wQuantZeroStr = &strs[180], *wQuantRangeStr = &strs[200];
+    char *yQuantBitsStr = &strs[240], *yQuantZeroStr = &strs[260], *yQuantRangeStr = &strs[280];
+    postField toPOST[] = {
+        { "samples", &trainingSamplesStr },
+        { "importances", &trainingSampleImportancesStr },
+        { "rowscols", &rowcol[indexOrder] },
+        { "numFeatures", &numEncodingFeaturesStr },
+        { "doEncoder", &checked[doEncoder] },
+        { "doDecoder", &checked[doDecoder] },
+        { "numVPs", &numVFsStr },
+        { "variationalDist", &vDists[variationalDist] },
+        { "maxWeights", &maxWeightsStr },
+        { "maxNeurons", &maxNeuronsStr },
+        { "maxLayers", &maxLayersStr },
+        { "maxWeightDepth", &maxWeightDepthStr },
+        { "maxActivationRate", &maxActivationRateStr },
+        { "maxWeightsHardLimit", &checked[maxWeightsHardLimit] },
+        { "maxNeuronsHardLimit", &checked[maxNeuronsHardLimit] },
+        { "maxActivationsHardLimit", &checked[maxActivationsHardLimit] },
+        { "step", &checked[allowedAFs.stepAF] },
+        { "ReLU", &checked[allowedAFs.ReLUAF] },
+        { "ReLU1", &checked[allowedAFs.ReLU1AF] },
+        { "sigmoid", &checked[allowedAFs.sigmoidAF] },
+        { "tanh", &checked[allowedAFs.tanhAF] },
+        { "quantizeWeights", &checked[weightQuantization.ifQuantize] },
+        { "wQuantBits", &wQuantBitsStr },
+        { "wQuantZero", &wQuantZeroStr },
+        { "wQuantRange", &wQuantRangeStr },
+        { "quantizeActivations", &checked[activationQuantization.ifQuantize] },
+        { "yQuantBits", &yQuantBitsStr },
+        { "yQuantZero", &yQuantZeroStr },
+        { "yQuantRange", &yQuantRangeStr },
+        { "sparseWeights", &checked[weightSparsity] },
+        { "allowNegativeWeights", &checked[allowNegativeWeights] },
+        { "hasBias", &checked[hasBias] },
+        { "submitStatus", &SubmitStr },
+        { "NNtype", &NNtypes[0] },
+        { "formSource", &sourceStr }
+    };
+    
+    trainingSamplesStr = data2table(trainingSamples, numFeatures, numSamples, indexOrder);
+    if (importances == NULL)  trainingSampleImportancesStr = "";
+    else  trainingSampleImportancesStr = data2table(importances, numFeatures, numSamples, indexOrder);
+    if ((trainingSamplesStr == NULL) || (trainingSampleImportancesStr == NULL)) return CD_OUT_OF_MEMORY_ERROR;
+    
+    sprintf(numEncodingFeaturesStr, "%i", numEncodingFeatures);
+    sprintf(numVFsStr, "%i", numVariationalFeatures);
+    maxWeightsStr[0] = maxNeuronsStr[0] = maxLayersStr[0] = maxWeightDepthStr[0] = 0;
+    if (maxWeights >= 0)  sprintf(maxWeightsStr, "%i", maxWeights);
+    if (maxNeurons >= 0)  sprintf(maxNeuronsStr, "%i", maxNeurons);
+    if (maxLayers >= 0)  sprintf(maxLayersStr, "%i", maxLayers);
+    if (maxWeightDepth >= 0)  sprintf(maxWeightDepthStr, "%i", maxWeightDepth);
+    sprintf(maxActivationRateStr, "%1.17g", maxActivationRate);
+    if (weightQuantization.ifQuantize)  {
+        sprintf(wQuantBitsStr, "%i", weightQuantization.bits);
+        sprintf(wQuantZeroStr, "%i", weightQuantization.zeroInt);
+        sprintf(wQuantRangeStr, "%1.17g", weightQuantization.range);
+    }
+    if (activationQuantization.ifQuantize)  {
+        sprintf(yQuantBitsStr, "%i", activationQuantization.bits);
+        sprintf(yQuantZeroStr, "%i", activationQuantization.zeroInt);
+        sprintf(yQuantRangeStr, "%1.17g", activationQuantization.range);
+    }
+    
+    rtrn = buildNN(NN, sampleOutputs, numSamples, weightSparsity, toPOST, sizeof(toPOST)/sizeof(postField));
+    if (errMsg != NULL)  *errMsg = &errMsgChars[0];
+    
+    free(trainingSamplesStr);
+    if (importances != NULL)  free(trainingSampleImportancesStr);
+    
+    return rtrn;
+}
+
+
 
 
 double linearAF(const double x)  {  return x;  }
+double stepAF(const double x)  {  if (x <= 0.)  return 0.;  else  return 1.;  }
+double ReLUAF(const double x)  {  if (x <= 0.)  return 0.;  else  return x;  }
+double ReLU1AF(const double x)  {  if (x <= 0.)  return 0.;  else if (x >= 1.)  return 1.;  else  return x;  }
+double sigmoidAF(const double x)  {  return 1. / (1. + exp(-x));  }
 
-double (*fs[5])(const double) = { &linearAF, NULL, NULL, NULL, &tanh };
+double (*fs[6])(const double) = { &linearAF, &stepAF, &ReLUAF, &ReLU1AF, &sigmoidAF, &tanh };
 
 double *run_CDNN(CDNN *NN, double *inputs)
 {
-    int l, li, l0, n, i, i0;
+    int l, li, l0, n, i, i0, j, sparseWeights = (NN->n0 != NULL);
     double *w;
     
     NN->y[0][0] = 1;
@@ -427,11 +541,17 @@ double *run_CDNN(CDNN *NN, double *inputs)
         for (li = 0; li < NN->numLayerInputs[l]; li++)  {
             l0 = NN->layerInputs[l][li];
             w = NN->weights[l][li];
-            for (i = 0; i < NN->layerSize[l]; i++)  {
-            for (i0 = 0; i0 < NN->layerSize[l0]; i0++)  {
-                NN->y[l][i] += (*w) * NN->y[l0][i0];
-                w++;
-        }   }}
+            if (sparseWeights)  {
+                int *n0 = NN->n0[l][li], *nf = NN->nf[l][li];
+                for (j = 0; j < NN->wSize[l][li]; j++)  {
+                    NN->y[l][nf[j]] += w[j] * NN->y[l0][n0[j]];
+            }   }
+            else  {
+                for (i = 0; i < NN->layerSize[l]; i++)  {
+                for (i0 = 0; i0 < NN->layerSize[l0]; i0++)  {
+                    NN->y[l][i] += (*w) * NN->y[l0][i0];
+                    w++;
+        }   }   }}
         for (n = 0; n < NN->layerSize[l]; n++)  {
             NN->y[l][n] = fs[NN->layerAFs[l]](NN->y[l][n]);
     }}  }
@@ -442,16 +562,24 @@ double *run_CDNN(CDNN *NN, double *inputs)
 
 void free_CDNN(CDNN *NN)
 {
-    int l, li;
+    int l, li, isSparse = (NN->n0 != NULL);
     
     for (l = 0; l < NN->numLayers; l++)  {
         for (li = 0; li < NN->numLayerInputs[l]; li++)  {
-            free(NN->weights[l][li]);       }
+            free(NN->weights[l][li]);
+            if (isSparse)  {
+                free(NN->n0[l][li]);
+                free(NN->nf[l][li]);
+        }   }
         
         free(NN->layerInputs[l]);
         free(NN->weights[l]);
         free(NN->y[l]);
-    }
+        if (isSparse)  {
+            free(NN->wSize[l]);
+            free(NN->n0[l]);
+            free(NN->nf[l]);
+    }   }
     
     free(NN->layerSize);
     free(NN->layerAFs);
@@ -459,4 +587,9 @@ void free_CDNN(CDNN *NN)
     free(NN->layerInputs);
     free(NN->weights);
     free(NN->y);
+    if (isSparse)  {
+        free(NN->wSize);
+        free(NN->n0);
+        free(NN->nf);
+    }
 }

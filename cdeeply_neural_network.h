@@ -19,8 +19,21 @@ extern "C" {
 #define UNIFORM_DIST 0
 #define NORMAL_DIST 1
 
+#define HARD_LIMIT 0
+#define SOFT_LIMIT 1
+
+#define OFF 0
+#define ALLOWED_AF 1
+#define QUANTIZE 1
+
+#define NO_NEGATIVE_WEIGHTS 0
+#define ALLOW_NEGATIVE_WEIGHTS 1
+
 #define NO_BIAS 0
 #define HAS_BIAS 1
+
+#define NONSPARSE_WEIGHTS 0
+#define SPARSE_WEIGHTS 1
 
 #define NO_IO_CONNECTIONS 0
 #define ALLOW_IO_CONNECTIONS 1
@@ -35,18 +48,30 @@ extern "C" {
 #define CD_NN_READ_ERROR 102
 
 typedef struct {
+    int stepAF, ReLUAF, ReLU1AF, sigmoidAF, tanhAF;
+} AFlist;
+
+typedef struct {
+    int ifQuantize, bits, zeroInt;
+    double range;
+} quantizationType;
+
+typedef struct {
     int numLayers, encoderLayer, variationalLayer;
     int *layerSize, *layerAFs, *numLayerInputs;
-    int **layerInputs;
+    int **layerInputs, **wSize;
+    int ***n0, ***nf;
     double ***weights;
     double **y;
 } CDNN;
 
 
 extern int CDNN_tabular_regressor(CDNN *, int, int, int, double *, int, int *, double *,
-        int, int, int, int, int, int, double *, char **);
+        int, int, int, int, double, int, int, int, AFlist, quantizationType, quantizationType,
+        int, int, int, int, double *, char **);
 extern int CDNN_tabular_encoder(CDNN *, int, int, double *, int, double *,
-        int, int, int, int, int, int, int, int, int, int, double *, char **);
+        int, int, int, int, int, int, int, int, int, double, int, int, int, AFlist, quantizationType, quantizationType,
+        int, int, int, double *, char **);
 extern double *run_CDNN(CDNN *, double *);
 extern void free_CDNN(CDNN *);
 
