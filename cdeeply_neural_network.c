@@ -5,14 +5,20 @@
  *  
  *  int errCode = myNN.tabular_regressor( CDNN *myNN, int numInputs, int numOutputs, int numSamples, double *trainingSamples,
  *                FEATURE_SAMPLE_ARRAY or SAMPLE_FEATURE_ARRAY, int *outputIndices, double *importances or NULL,
- *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxWeightDepth or NO_MAX,
+ *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxWeightDepth or NO_MAX, double maxActivationRate,
+ *                HARD_LIMIT or SOFT_LIMIT (for weights), HARD_LIMIT or SOFT_LIMIT (for neurons), HARD_LIMIT or SOFT_LIMIT (for activations),
+ *                AFlist allowedAFs, quantizationType weightQuantization, quantizationType activationQuantization,
+ *                NONSPARSE_WEIGHTS or SPARSE_WEIGHTS, ALLOW_NEGATIVE_WEIGHTS or NO_NEGATIVE_WEIGHTS, 
  *                NO_BIAS or HAS_BIAS, NO_IO_CONNECTIONS or ALLOW_IO_CONNECTIONS, double *trainingOutputs or NULL, char **errorMessage or NULL );
  *  
  *  int errCode = myNN.tabular_encoder( CDNN *myNN, int numFeatures, int numSamples,
  *                double *trainingSamples, FEATURE_SAMPLE_ARRAY or SAMPLE_FEATURE_ARRAY, double *importances or NULL,
  *                DO_ENCODER or NO_ENCODER, DO_DECODER or NO_DECODER,
  *                int numEncodingFeatures, int numVariationalFeatures, NORMAL_DIST or UNIFORM_DIST,
- *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxWeightDepth or NO_MAX,
+ *                int maxWeights or NO_MAX, int maxHiddenNeurons or NO_MAX, int maxLayers or NO_MAX, int maxWeightDepth or NO_MAX, double maxActivationRate,
+ *                HARD_LIMIT or SOFT_LIMIT (for weights), HARD_LIMIT or SOFT_LIMIT (for neurons), HARD_LIMIT or SOFT_LIMIT (for activations),
+ *                AFlist allowedAFs, quantizationType weightQuantization, quantizationType activationQuantization,
+ *                NONSPARSE_WEIGHTS or SPARSE_WEIGHTS, ALLOW_NEGATIVE_WEIGHTS or NO_NEGATIVE_WEIGHTS, 
  *                NO_BIAS or HAS_BIAS, double *trainingOutputs or NULL, char **errorMessage or NULL );
  *  
  *  * Pass "SAMPLE_FEATURE_ARRAY" if elements of trainingSamples are ordered (s1f1, s1f2, ..., s2f1, ...),
@@ -21,6 +27,8 @@
  *  * The importances table, if not NULL, has numOutputFeatures*numSamples elements (again, ordered by indexOrder),
  *        and weights the training cost function:  C = sum(Imp*dy^2).
  *  * Weight/neuron/etc limits are either positive integers or "NO_MAX".
+ *  * Each field of allowedAFs should be either ALLOWED_AF or OFF.
+ *  * The ifQuantize field of weightQuantization and activationQuantization should be either QUANTIZE or OFF.
  *  * trainingOutputs[], if passed, has numOutputs*numSamples elements and should agree with what's computed locally.
  *  * errorMessage, if passed, does not allocate a string and therefore does not need to be freed if it is set (i.e. if errCode != 0).
  *  
