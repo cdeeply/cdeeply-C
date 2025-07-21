@@ -12,10 +12,10 @@ Using the library involves four steps:
 
 `errCode = cdeeply_tabular_regressor(&myNN, numInputs, numTargetOutputs, numSamples,`  
 `        &trainingSamples, sampleTableTranspose, &outputRowOrColumnList, &importances,`  
-`        maxWeights, maxHiddenNeurons, maxLayers, maxWeightDepth, maxActivationRate,`
-`        maxWeightsHardLimit, maxHiddenNeuronsHardLimit, maxActivationsHardLimit,`
-`        allowedAFs, weightQuantization, activationQuantization,`
-`        weightSparsity, negativeWeights, ifNNhasBias, ifAllowingInputOutputConnections,`
+`        maxWeights, maxHiddenNeurons, maxLayers, maxWeightDepth, maxActivationRate,`  
+`        maxWeightsHardLimit, maxHiddenNeuronsHardLimit, maxActivationsHardLimit,`  
+`        allowedAFs, weightQuantization, activationQuantization,`  
+`        weightSparsity, negativeWeights, ifNNhasBias, ifAllowingInputOutputConnections,`  
 `        &sampleOutputs, &errorMessageString)`
 
 Generates a x->y prediction network using *supervised* training on `trainingSamples`.
@@ -37,8 +37,8 @@ Generates a x->y prediction network using *supervised* training on `trainingSamp
 `        &trainingSamples, sampleTableTranspose, &importances,`  
 `        ifDoEncoder, ifDoDecoder, numEncodingFeatures, numVariationalFeatures, variationalDist,`  
 `        maxWeights, maxHiddenNeurons, maxLayers, maxWeightDepth,`  
-`        maxWeightsHardLimit, maxHiddenNeuronsHardLimit, maxActivationsHardLimit,`
-`        allowedAFs, weightQuantization, activationQuantization,`
+`        maxWeightsHardLimit, maxHiddenNeuronsHardLimit, maxActivationsHardLimit,`  
+`        allowedAFs, weightQuantization, activationQuantization,`  
 `        weightSparsity, ifNNhasBias, &sampleOutputs, &errorMessageString)`
 
 Generates an autoencoder (or an encoder or decoder) using *unsupervised* training on `trainingSamples`.
