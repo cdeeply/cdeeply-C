@@ -39,7 +39,7 @@ Generates a x->y prediction network using *supervised* training on `trainingSamp
 `        maxWeights, maxHiddenNeurons, maxLayers, maxWeightDepth,`  
 `        maxWeightsHardLimit, maxHiddenNeuronsHardLimit, maxActivationsHardLimit,`  
 `        allowedAFs, weightQuantization, activationQuantization,`  
-`        weightSparsity, ifNNhasBias, &sampleOutputs, &errorMessageString)`
+`        weightSparsity, negativeWeights, ifNNhasBias, &sampleOutputs, &errorMessageString)`
 
 Generates an autoencoder (or an encoder or decoder) using *unsupervised* training on `trainingSamples`.
 * `trainingSamples` is a `numFeatures*numSamples`-length table unrolled to type `double *`.
