@@ -83,9 +83,7 @@ int cdReadInts(int *theInts, int numInts)
 {
     int i;
     for (i = 0; i < numInts; i++)  {
-char *backup = charPtr;
     if (cdReadInt(theInts + i) != 0)  {
-printf("error at (%p) (%c%c%c)%c%c%c%c%c%c%c%c%c%c ((%i %i %i) %i %i %i %i %i %i %i %i %i %i)\n", backup, backup[-3], backup[-2], backup[-1], backup[0], backup[1], backup[2], backup[3], backup[4], backup[5], backup[6], backup[7], backup[8], backup[9], backup[-3], backup[-2], backup[-1], backup[0], backup[1], backup[2], backup[3], backup[4], backup[5], backup[6], backup[7], backup[8], backup[9]);
         return CD_NN_READ_ERROR;
     }}
     return 0;
